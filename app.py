@@ -3,13 +3,12 @@ from bigml.ensemble import Ensemble
 from bigml.api import BigML
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="IA Diabetes TM", page_icon="🩸", layout="centered")
+st.set_page_config(page_title="IA Diagnóstico TM", page_icon="🩸", layout="centered")
 
 # --- 1. CONEXIÓN AL CEREBRO REAL ---
-# Usamos @st.cache para que no cargue el modelo cada vez que haces clic, sino que lo guarde en memoria.
 @st.cache_resource
 def cargar_modelo():
-    # Tus credenciales reales
+    # Tus credenciales
     api = BigML("mahumada1210", 
                 "71c52a8bf7eea6966465f8fced5a0809a4e946d3", 
                 domain="bigml.io")
@@ -17,54 +16,65 @@ def cargar_modelo():
     ensemble = Ensemble('ensemble/692c79358c54fd5f980b9091', api=api)
     return ensemble
 
-# Carga inicial con mensaje de estado
+# Estado de conexión en barra lateral
 try:
     ensemble = cargar_modelo()
-    st.success("✅ Sistema Conectado al Analizador BigML (Nube)")
+    st.sidebar.success("✅ Conectado a BigML")
 except Exception as e:
     st.error(f"❌ Error de conexión: {e}")
 
-# --- 2. INTERFAZ VISUAL (Entrada de Datos) ---
-st.title("🩸 Diagnóstico IA: Diabetes")
-st.markdown("Herramienta de soporte clínico basada en Ensamble de Árboles de Decisión.")
+# --- 2. INTERFAZ VISUAL ---
+st.title("🩸 Sistema de Soporte Clínico")
+st.markdown("### 🤖 Diagnóstico Asistido por IA")
+st.info("Ingrese los parámetros. Si no tiene un dato opcional, déjelo desactivado.")
 
-st.markdown("### Ingreso de Datos del Paciente")
-
-# Creamos las casillas para meter los números
 col1, col2 = st.columns(2)
 
 with col1:
-    glucose = st.number_input("Glucosa (mg/dL)", min_value=0, max_value=500, value=105)
-    bmi = st.number_input("BMI (Índice Masa)", min_value=10.0, max_value=60.0, value=26.0)
-    age = st.number_input("Edad (Años)", min_value=1, max_value=100, value=45)
+    st.subheader("Datos Críticos")
+    # Valores por defecto para prueba rápida
+    glucose = st.number_input("Glucosa (mg/dL)", min_value=0, max_value=600, value=150)
+    bmi = st.number_input("BMI (Índice de Masa)", min_value=10.0, max_value=60.0, value=19.0, step=0.1)
+    age = st.number_input("Edad (Años)", min_value=1, max_value=120, value=55)
 
 with col2:
-    # Variables opcionales pero útiles
-    insulin = st.number_input("Insulina (mu U/ml)", min_value=0, value=100)
-    blood_pressure = st.number_input("Presión Arterial", min_value=0, value=75)
-    # Aquí podrías agregar más si quieres
+    st.subheader("Datos Secundarios")
+    
+    # Checkbox: Si no se marca, el dato NO existe para el modelo (Evita ruido)
+    usar_insulina = st.checkbox("Tengo dato de Insulina", value=False)
+    if usar_insulina:
+        insulin = st.number_input("Insulina (mu U/ml)", value=100)
+    else:
+        insulin = None
 
-# Empaquetamos los datos en un diccionario, igual que en Colab
+    usar_presion = st.checkbox("Tengo dato de Presión", value=False)
+    if usar_presion:
+        blood_pressure = st.number_input("Presión Arterial", value=75)
+    else:
+        blood_pressure = None
+
+# Empaquetamos SOLO lo que existe
 input_data = {
     "Glucose": glucose,
     "BMI": bmi,
-    "Age": age,
-    "Insulin": insulin,
-    "BloodPressure": blood_pressure
+    "Age": age
 }
 
-# --- 3. BOTÓN Y LÓGICA DE PREDICCIÓN ---
-if st.button("PROCESAR MUESTRA 🧬", type="primary"):
+if insulin is not None:
+    input_data["Insulin"] = insulin
+if blood_pressure is not None:
+    input_data["BloodPressure"] = blood_pressure
+
+# --- 3. PREDICCIÓN ---
+if st.button("CALCULAR RIESGO AHORA 🚀", type="primary"):
     
-    with st.spinner('Analizando patrones...'):
-        # Consulta real a BigML
-        prediccion = ensemble.predict(input_data)
+    with st.spinner('Consultando a BigML...'):
+        # Predicción
+        resultado = ensemble.predict(input_data)
+        etiqueta = resultado['prediction']
+        confianza = resultado['probability']
         
-        # Extracción de datos crudos
-        etiqueta = prediccion['prediction']
-        confianza = prediccion['probability']
-        
-        # Cálculo del riesgo real (Lógica validada)
+        # Cálculo de riesgo
         if etiqueta == "TRUE":
             prob_enfermedad = confianza
         else:
@@ -72,17 +82,23 @@ if st.button("PROCESAR MUESTRA 🧬", type="primary"):
             
         porcentaje = prob_enfermedad * 100
         
-        # --- 4. RESULTADO VISUAL ---
+        # --- RESULTADOS ---
         st.divider()
-        st.metric(label="Probabilidad de Patología", value=f"{porcentaje:.2f}%")
         
-        # TU REGLA DEL 8%
+        # UMBRAL DEL 8% (El que nos funcionó bien)
         UMBRAL = 0.08
         
-        if prob_enfermedad > UMBRAL:
-            st.error(f"🔴 ALERTA: RIESGO DETECTADO")
-            st.write(f"El riesgo supera el umbral de seguridad del {UMBRAL*100}%.")
-            st.warning("👉 Acción: Repetir examen / Confirmación clínica.")
-        else:
-            st.success(f"🟢 NEGATIVO / BAJO RIESGO")
-            st.write("Paciente dentro de rangos seguros según el modelo.")
+        col_res1, col_res2 = st.columns([1, 2])
+        
+        with col_res1:
+            st.metric(label="Riesgo Calculado", value=f"{porcentaje:.2f}%")
+        
+        with col_res2:
+            if prob_enfermedad > UMBRAL:
+                st.error("🚨 ESTADO: ALERTA DE RIESGO")
+                st.markdown(f"**Supera el umbral de seguridad del {UMBRAL*100}%.**")
+                st.markdown("👉 **ACCIÓN:** Repetir examen / Confirmar con clínica.")
+            else:
+                st.success("🟢 ESTADO: NEGATIVO / BAJO RIESGO")
+                st.markdown("**Paciente dentro de rangos seguros.**")
+                st.markdown("👉 **ACCIÓN:** Control de rutina.")
